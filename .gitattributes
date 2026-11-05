@@ -1,0 +1,4 @@
+# Our CI workflow intentionally replaces the upstream semantic-release one.
+# On upstream merges, always keep our version instead of raising conflicts.
+.github/workflows/release.yml merge=ours
+patches-bundle.json merge=ours
