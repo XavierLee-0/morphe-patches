@@ -1,0 +1,129 @@
+name: Sync upstream
+
+# Daily check for a new stable release of MorheApp/morphe-patches.
+# On a new release:
+#   1. generate a patch of our custom changes (feature files only)
+#   2. check out the new upstream release tag
+#   3. apply the patch (3-way) — conflicts fail the job on purpose
+#   4. restore our CI/bundle infra files, align patches-bundle.json
+#   5. force-push the snapshot — this triggers "Build and Release"
+# On conflicts the job fails (GitHub emails the repo owner) and opens an
+# issue asking for manual intervention.
+
+on:
+  schedule:
+    - cron: '0 1 * * *' # 09:00 Asia/Shanghai daily
+  workflow_dispatch:
+
+env:
+  UPSTREAM_REPO: MorpheApp/morphe-patches
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream with tags
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream --tags
+
+      - name: Check for new stable release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          TAG=$(gh api "repos/${UPSTREAM_REPO}/releases" \
+            --paginate --jq '.[] | select(.prerelease == false and .draft == false) | .tag_name' \
+            | head -n1)
+          echo "Latest upstream stable release: $TAG"
+          LOCAL_VERSION=$(sed -n 's/^version *= *//p' gradle.properties | tr -d '\r')
+          echo "Our base version: $LOCAL_VERSION"
+          if [ "${TAG#v}" = "$LOCAL_VERSION" ]; then
+            echo "update=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date."
+          else
+            echo "update=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate custom feature patch
+        if: steps.check.outputs.update == 'true'
+        run: |
+          BASE_TAG="v$(sed -n 's/^version *= *//p' gradle.properties | tr -d '\r')"
+          git diff "$BASE_TAG" HEAD \
+            -- . ':(exclude).github' ':(exclude).gitattributes' \
+               ':(exclude)patches-bundle.json' ':(exclude)Dockerfile' \
+            > /tmp/custom.patch
+          if [ ! -s /tmp/custom.patch ]; then
+            echo "::error::Generated patch is empty — nothing to apply?"
+            exit 1
+          fi
+          echo "Patch size: $(wc -l < /tmp/custom.patch) lines"
+
+      - name: Check out new upstream release
+        if: steps.check.outputs.update == 'true'
+        run: git checkout "${{ steps.check.outputs.tag }}"
+
+      - name: Apply custom patch (3-way)
+        if: steps.check.outputs.update == 'true'
+        run: git apply --3way /tmp/custom.patch
+
+      - name: Sanity check the custom setting survived
+        if: steps.check.outputs.update == 'true'
+        run: |
+          grep -q "morphe_miniplayer_minimal_disable_swipe_gestures" \
+            extensions/youtube/src/main/java/app/morphe/extension/youtube/settings/Settings.java || {
+            echo "::error::Custom setting missing after patch — upstream restructured the code."
+            exit 1
+          }
+
+      - name: Restore our CI and bundle files
+        if: steps.check.outputs.update == 'true'
+        run: git checkout main -- .github .gitattributes patches-bundle.json Dockerfile
+
+      - name: Align patches-bundle.json
+        if: steps.check.outputs.update == 'true'
+        run: |
+          VERSION=$(sed -n 's/^version *= *//p' gradle.properties | tr -d '\r')
+          TAG="v${VERSION}-custom.1"
+          ASSET="patches-${VERSION}-custom.1.mpp"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq --arg v "${VERSION}-custom.1" --arg u "$URL" --arg t "$NOW" \
+            '.version = $v | .download_url = $u | .created_at = $t |
+             .description = "Morphe Patches '"${VERSION}"' + custom feature: Disable swipe gestures setting for the Minimal / Minimal 2 miniplayer. Based on upstream v'"${VERSION}"'."' \
+            patches-bundle.json > patches-bundle.json.tmp && mv patches-bundle.json.tmp patches-bundle.json
+          cat patches-bundle.json
+
+      - name: Commit snapshot and push
+        if: steps.check.outputs.update == 'true'
+        run: |
+          git add -A
+          git commit -m "Snapshot of upstream ${{ steps.check.outputs.tag }} + Disable swipe gestures for Minimal miniplayer"
+          git push origin HEAD:main --force
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          TITLE="Upstream sync failed — manual merge needed"
+          OPEN=$(gh issue list --repo "$REPO" --state open --search "${TITLE} in:title" --json number --jq 'length')
+          if [ "${OPEN:-0}" = "0" ]; then
+            gh issue create --repo "$REPO" \
+              --title "$TITLE" \
+              --body "The daily sync of ${UPSTREAM_REPO} failed (merge conflict or upstream restructure). The 'Disable swipe gestures' changes in MinimalMiniplayerPatch.java / MiniplayerPatch.kt / Settings.java / MiniplayerPatch.kt likely need to be re-applied on top of the new upstream code. Ask the agent to resolve and push."
+          else
+            echo "Failure issue already open."
+          fi
