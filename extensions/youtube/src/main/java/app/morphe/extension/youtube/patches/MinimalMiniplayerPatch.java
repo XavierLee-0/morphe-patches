@@ -383,7 +383,7 @@ public final class MinimalMiniplayerPatch {
                             } else if (draggedUp > slop && Settings.MINIPLAYER_SWIPE_UP_EXPAND.get()) {
                                 // Goes through the click, so accessibility services see it.
                                 view.performClick();
-                            } else if (draggedVertically) {
+                            } else if (draggedVertically && !Settings.MINIPLAYER_MINIMAL_DISABLE_DRAG.get()) {
                                 // Already at the top, a drag up has nowhere to go. Nor while the bar
                                 // is animating, which can be the bar leaving before it is closed.
                                 final boolean toTop = draggedUp > 0;

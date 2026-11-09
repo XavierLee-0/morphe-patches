@@ -1339,6 +1339,8 @@ Second \"item\" text"</string>
   <string name="morphe_miniplayer_minimal_disable_swipe_gestures_title">停用滑動手勢</string>
   <string name="morphe_miniplayer_minimal_disable_swipe_gestures_summary">停用在螢幕底部和頂部之間滑動調整 Minimal 迷你播放器的位置，以及下滑關閉</string>
   <string name="morphe_miniplayer_disable_horizontal_drag_title">停用水平拖曳手勢</string>
+  <string name="morphe_miniplayer_minimal_disable_drag_title">禁用拖動迷你播放器欄</string>
+  <string name="morphe_miniplayer_minimal_disable_drag_summary">欄不再跟隨手指在螢幕底部與頂部之間拖動。上滑展開和下滑收起仍然可用。</string>
   <string name="morphe_miniplayer_disable_horizontal_drag_summary">防止透過水平滑動迷你播放器關閉螢幕</string>
   <string name="morphe_miniplayer_disable_horizontal_drag_playback_title">使用水平拖曳暫停播放</string>
   <string name="morphe_miniplayer_disable_horizontal_drag_playback_summary">迷你播放器滑離螢幕時，播放將會暫停</string>

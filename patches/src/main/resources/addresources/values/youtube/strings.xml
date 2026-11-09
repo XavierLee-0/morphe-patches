@@ -1457,6 +1457,8 @@ Automotive layout
     <string name="morphe_miniplayer_minimal_disable_swipe_gestures_title">Disable swipe gestures</string>
     <string name="morphe_miniplayer_minimal_disable_swipe_gestures_summary">Disables swiping the minimal bar between the bottom and the top of the screen, and dismissing it by swiping down</string>
     <string name="morphe_miniplayer_disable_horizontal_drag_title">Disable horizontal drag gesture</string>
+    <string name="morphe_miniplayer_minimal_disable_drag_title">Disable dragging the miniplayer bar</string>
+    <string name="morphe_miniplayer_minimal_disable_drag_summary">The bar no longer follows vertical drags between the bottom and the top of the screen. Swipe up to expand and swipe down to dismiss still work.</string>
     <string name="morphe_miniplayer_disable_horizontal_drag_summary">Prevents closing the miniplayer by swiping it horizontally off-screen</string>
     <string name="morphe_miniplayer_disable_horizontal_drag_playback_title">Pause playback with horizontal drag</string>
     <string name="morphe_miniplayer_disable_horizontal_drag_playback_summary">Playback will pause when the miniplayer is dragged off screen</string>
