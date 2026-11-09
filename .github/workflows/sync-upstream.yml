@@ -1,14 +1,27 @@
 name: Sync upstream
 
-# Daily check for a new stable release of MorheApp/morphe-patches.
-# On a new release:
-#   1. generate a patch of our custom changes (feature files only)
-#   2. check out the new upstream release tag
-#   3. apply the patch (3-way) — conflicts fail the job on purpose
-#   4. restore our CI/bundle infra files, align patches-bundle.json
-#   5. force-push the snapshot — this triggers "Build and Release"
-# On conflicts the job fails (GitHub emails the repo owner) and opens an
-# issue asking for manual intervention.
+# Daily check for a new stable release of MorpheApp/morphe-patches.
+#
+# Repository history convention ("shallow-root" history — the upstream
+# baseline is a local root commit, not the real upstream history, so pushes
+# stay small and the repo does not need to mirror thousands of upstream
+# commits):
+#
+#   Upstream MorpheApp/morphe-patches vX.Y.Z   (root commit or chained)
+#     └─ Custom: ...                            (only our local changes)
+#         └─ Upstream MorpheApp/morphe-patches vX.Z+1
+#             └─ Custom: ...
+#
+# On a new upstream release:
+#   1. generate the custom patch = 'git diff HEAD~1 HEAD' (source files only)
+#   2. replace the working tree with the new upstream tag content
+#   3. apply the custom patch (3-way) — conflicts fail the job on purpose
+#   4. commit the new baseline, then re-apply our custom changes and CI files
+#   5. push (fast-forward, no force) — this triggers "Build and Release"
+#
+# IMPORTANT: HEAD~1 must always be an "Upstream ..." baseline commit. Never
+# push hand-made commits directly on main that break this pairing, or the
+# patch generation below produces garbage.
 
 on:
   schedule:
@@ -32,10 +45,20 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch upstream with tags
+      - name: Locate the current upstream baseline commit
+        id: baseline
         run: |
-          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-          git fetch upstream --tags
+          # The custom patch is always generated against the most recent
+          # "Upstream ..." baseline commit, NOT HEAD~1: hand-made commits
+          # (CI tweaks, small fixes) may sit between it and HEAD, and their
+          # source changes are carried over as part of the custom patch.
+          BASE=$(git log --grep='^Upstream MorpheApp/morphe-patches ' -1 --format=%H)
+          if [ -z "$BASE" ]; then
+            echo "::error::No 'Upstream MorpheApp/morphe-patches ...' baseline commit found in main history."
+            exit 1
+          fi
+          echo "Baseline commit: $(git log -1 --format='%h %s' "$BASE")"
+          echo "sha=$BASE" >> "$GITHUB_OUTPUT"
 
       - name: Check for new stable release
         id: check
@@ -59,8 +82,7 @@ jobs:
       - name: Generate custom feature patch
         if: steps.check.outputs.update == 'true'
         run: |
-          BASE_TAG="v$(sed -n 's/^version *= *//p' gradle.properties | tr -d '\r')"
-          git diff "$BASE_TAG" HEAD \
+          git diff "${{ steps.baseline.outputs.sha }}" HEAD \
             -- . ':(exclude).github' ':(exclude).gitattributes' \
                ':(exclude)patches-bundle.json' ':(exclude)Dockerfile' \
             > /tmp/custom.patch
@@ -70,9 +92,20 @@ jobs:
           fi
           echo "Patch size: $(wc -l < /tmp/custom.patch) lines"
 
-      - name: Check out new upstream release
+      - name: Fetch upstream release content
         if: steps.check.outputs.update == 'true'
-        run: git checkout "${{ steps.check.outputs.tag }}"
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          # Shallow fetch of just the new tag keeps the transfer small.
+          git fetch upstream "refs/tags/${{ steps.check.outputs.tag }}:refs/tags/${{ steps.check.outputs.tag }}" --depth=1 --no-tags
+
+      - name: Replace working tree with the new upstream release
+        if: steps.check.outputs.update == 'true'
+        run: |
+          # Replace index + working tree with the upstream tree while keeping
+          # HEAD on main, so the next commit (the new baseline) gets the
+          # current main HEAD as its parent and the push stays a fast-forward.
+          git read-tree -u --reset "refs/tags/${{ steps.check.outputs.tag }}^{tree}"
 
       - name: Apply custom patch (3-way)
         if: steps.check.outputs.update == 'true'
@@ -87,9 +120,27 @@ jobs:
             exit 1
           }
 
-      - name: Restore our CI and bundle files
+      - name: Commit new upstream baseline
         if: steps.check.outputs.update == 'true'
-        run: git checkout main -- .github .gitattributes patches-bundle.json Dockerfile
+        run: |
+          # Reset to the vanilla upstream content (drops the 3-way result),
+          # commit it as the new baseline. HEAD~1 afterwards is still the
+          # previous custom commit, holding our CI infra files.
+          git reset -q --hard "refs/tags/${{ steps.check.outputs.tag }}"
+          git commit -m "Upstream MorpheApp/morphe-patches ${{ steps.check.outputs.tag }}
+
+          Upstream baseline commit (vanilla ${{ steps.check.outputs.tag }} content)."
+
+      - name: Re-apply custom changes and CI files
+        if: steps.check.outputs.update == 'true'
+        run: |
+          # Replay the custom source changes on top of the new baseline.
+          git apply --3way /tmp/custom.patch
+          # Wipe upstream's CI infra and restore ours (upstream ships its own
+          # .github with workflows we do not want, so a plain checkout of
+          # overlapping paths is not enough — remove the whole trees first).
+          git rm -rq --ignore-unmatch .github .gitattributes patches-bundle.json Dockerfile
+          git checkout HEAD~1 -- .github .gitattributes patches-bundle.json Dockerfile
 
       - name: Align patches-bundle.json
         if: steps.check.outputs.update == 'true'
@@ -105,12 +156,17 @@ jobs:
             patches-bundle.json > patches-bundle.json.tmp && mv patches-bundle.json.tmp patches-bundle.json
           cat patches-bundle.json
 
-      - name: Commit snapshot and push
+      - name: Commit custom changes and push
         if: steps.check.outputs.update == 'true'
         run: |
           git add -A
-          git commit -m "Snapshot of upstream ${{ steps.check.outputs.tag }} + Disable swipe gestures for Minimal miniplayer"
-          git push origin HEAD:main --force
+          git commit -m "Custom: disable swipe gestures for Minimal / Minimal 2 miniplayer
+
+          Re-applied by the Sync upstream workflow on top of the new upstream
+          baseline. 'git diff HEAD~1 HEAD' (excluding CI files) is the current
+          custom patch."
+          git log --oneline -4
+          git push origin HEAD:main
 
       - name: Report failure
         if: failure()
@@ -123,7 +179,7 @@ jobs:
           if [ "${OPEN:-0}" = "0" ]; then
             gh issue create --repo "$REPO" \
               --title "$TITLE" \
-              --body "The daily sync of ${UPSTREAM_REPO} failed (merge conflict or upstream restructure). The 'Disable swipe gestures' changes in MinimalMiniplayerPatch.java / MiniplayerPatch.kt / Settings.java / MiniplayerPatch.kt likely need to be re-applied on top of the new upstream code. Ask the agent to resolve and push."
+              --body "The daily sync of ${UPSTREAM_REPO} failed (merge conflict or upstream restructure). The 'Disable swipe gestures' changes in MinimalMiniplayerPatch.java / MiniplayerPatch.kt / Settings.java likely need to be re-applied on top of the new upstream code. Ask the agent to resolve and push."
           else
             echo "Failure issue already open."
           fi
