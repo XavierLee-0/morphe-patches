@@ -111,12 +111,16 @@ jobs:
         if: steps.check.outputs.update == 'true'
         run: git apply --3way /tmp/custom.patch
 
-      - name: Sanity check the custom setting survived
+      - name: Sanity check the custom settings survived
         if: steps.check.outputs.update == 'true'
         run: |
-          grep -q "morphe_miniplayer_minimal_disable_swipe_gestures" \
-            extensions/youtube/src/main/java/app/morphe/extension/youtube/settings/Settings.java || {
-            echo "::error::Custom setting missing after patch — upstream restructured the code."
+          SETTINGS_FILE="extensions/youtube/src/main/java/app/morphe/extension/youtube/settings/Settings.java"
+          grep -q "morphe_miniplayer_minimal_disable_swipe_gestures" "$SETTINGS_FILE" || {
+            echo "::error::'Disable swipe gestures' setting missing after patch — upstream restructured the code."
+            exit 1
+          }
+          grep -q "morphe_miniplayer_minimal_disable_drag" "$SETTINGS_FILE" || {
+            echo "::error::'Disable dragging the bar' setting missing after patch — upstream restructured the code."
             exit 1
           }
 
