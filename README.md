@@ -32,6 +32,18 @@ Morphe Patches are based off the prior work of [ReVanced](https://github.com/ReV
 All modifications made by Morphe, along with their dates, can be found in the Git history.
 
 &nbsp;
+## 🔧 Custom changes (this fork)
+
+This repository tracks upstream [MorpheApp/morphe-patches](https://github.com/MorpheApp/morphe-patches) releases and adds custom features on top. The history is organized as upstream baseline commits followed by our custom commits, so diffing against the latest `Upstream MorpheApp/morphe-patches ...` commit always shows exactly what differs from vanilla.
+
+Current custom features (on top of upstream v2.1.0):
+
+- **Disable swipe gestures for the Minimal / Minimal 2 miniplayer** — vertical swipe handling (drag the bar, swipe-to-expand, swipe-to-dismiss) can be turned off entirely.
+- **Disable dragging the miniplayer bar** — finer-grained option: the bar no longer follows vertical drags between the bottom and the top of the screen, while swipe-up-to-expand and swipe-down-to-dismiss keep working.
+
+Releases (e.g. `v2.1.0-custom.1`) are built by GitHub Actions and can be added as a custom patch source in Morphe Manager. A daily *Sync upstream* workflow re-applies our custom changes onto each new upstream stable release; if the merge conflicts, it fails on purpose and opens an issue for a manual merge.
+
+&nbsp;
 ## 🩹 Patches list
 
 <!-- PATCHES_START -->
