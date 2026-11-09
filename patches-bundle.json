@@ -1,0 +1,7 @@
+{
+  "created_at": "2026-11-09T00:00:00",
+  "description": "Morphe Patches 2.1.0 + custom feature: 'Disable swipe gestures' setting for the Minimal / Minimal 2 miniplayer (disables swiping the bar between bottom and top, and swipe-down-to-dismiss). Based on upstream v2.1.0.",
+  "download_url": "https://github.com/XavierLee-0/morphe-patches/releases/download/v2.1.0-custom.1/patches-2.1.0-custom.1.mpp",
+  "signature_download_url": "",
+  "version": "2.1.0-custom.1"
+}
