@@ -134,6 +134,8 @@ val miniplayerPatch = patch(
         preferences += SwitchPreference("morphe_miniplayer_docked", summary = true)
         preferences += SwitchPreference("morphe_miniplayer_disable_rounded_corners")
         preferences += SwitchPreference("morphe_miniplayer_disable_drag_and_drop", summary = true)
+        preferences += SwitchPreference("morphe_miniplayer_minimal_disable_swipe_gestures", summary = true)
+        preferences += SwitchPreference("morphe_miniplayer_minimal_disable_drag", summary = true)
         preferences += SwitchPreference("morphe_miniplayer_disable_horizontal_drag", summary = true)
         if (!is_21_29_or_greater) {
             preferences += SwitchPreference("morphe_miniplayer_hide_overlay_buttons")
