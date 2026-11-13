@@ -39,6 +39,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # PAT instead of the default GITHUB_TOKEN: pushes made with the
+          # default token do not trigger the "Build and Release" workflow.
+          token: ${{ secrets.GH_TOKEN }}
 
       - name: Configure git
         run: |
@@ -127,10 +130,13 @@ jobs:
       - name: Commit new upstream baseline
         if: steps.check.outputs.update == 'true'
         run: |
-          # Reset to the vanilla upstream content (drops the 3-way result),
-          # commit it as the new baseline. HEAD~1 afterwards is still the
-          # previous custom commit, holding our CI infra files.
-          git reset -q --hard "refs/tags/${{ steps.check.outputs.tag }}"
+          # Replace index + working tree with the vanilla upstream content
+          # WITHOUT moving main (a 'git reset --hard <tag>' here would move
+          # the branch onto the shallow upstream history and break the
+          # fast-forward push). Committing afterwards creates the baseline
+          # with the current main HEAD as parent, so the push stays a
+          # fast-forward and HEAD~1 remains the previous custom commit.
+          git read-tree -u --reset "refs/tags/${{ steps.check.outputs.tag }}^{tree}"
           git commit -m "Upstream MorpheApp/morphe-patches ${{ steps.check.outputs.tag }}
 
           Upstream baseline commit (vanilla ${{ steps.check.outputs.tag }} content)."
