@@ -134,8 +134,6 @@ val miniplayerPatch = patch(
         preferences += SwitchPreference("morphe_miniplayer_docked", summary = true)
         preferences += SwitchPreference("morphe_miniplayer_disable_rounded_corners")
         preferences += SwitchPreference("morphe_miniplayer_disable_drag_and_drop", summary = true)
-        preferences += SwitchPreference("morphe_miniplayer_minimal_disable_swipe_gestures", summary = true)
-        preferences += SwitchPreference("morphe_miniplayer_minimal_disable_drag", summary = true)
         preferences += SwitchPreference("morphe_miniplayer_disable_horizontal_drag", summary = true)
         if (!is_21_29_or_greater) {
             preferences += SwitchPreference("morphe_miniplayer_hide_overlay_buttons")
@@ -187,25 +185,6 @@ val miniplayerPatch = patch(
             literal,
             "$EXTENSION_CLASS->$extensionMethod(Z)Z"
         )
-
-        fun Fingerprint.insertMiniplayerFeatureFlagFloatOverride(
-            literal: Long,
-            extensionMethod: String,
-        ) {
-            method.apply {
-                val literalIndex = indexOfFirstLiteralInstructionOrThrow(literal)
-                val targetIndex = indexOfFirstInstructionOrThrow(literalIndex, Opcode.DOUBLE_TO_FLOAT)
-                val register = getInstruction<OneRegisterInstruction>(targetIndex).registerA
-
-                addInstructions(
-                    targetIndex + 1,
-                    """
-                        invoke-static { v$register }, $EXTENSION_CLASS->$extensionMethod(F)F
-                        move-result v$register
-                    """
-                )
-            }
-        }
 
         // region Disable resuming miniplayer (Continue watching)
 

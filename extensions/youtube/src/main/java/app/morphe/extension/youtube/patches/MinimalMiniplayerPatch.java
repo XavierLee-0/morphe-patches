@@ -217,13 +217,6 @@ public final class MinimalMiniplayerPatch {
     private static boolean barAtTop;
 
     /**
-     * Whether the bar answers vertical swipes: moving it between the bottom and the top of
-     * the screen, and closing it with a swipe down. The close button always stays available.
-     */
-    private static final boolean SWIPE_GESTURES_ENABLED =
-            !Settings.MINIPLAYER_MINIMAL_DISABLE_SWIPE_GESTURES.get();
-
-    /**
      * The height the snackbars and the other bottom messages take, which YouTube moves its own
      * miniplayer up by.
      */
@@ -373,17 +366,13 @@ public final class MinimalMiniplayerPatch {
 
                         case MotionEvent.ACTION_UP:
                             final float draggedUp = downY - event.getRawY();
-                            final boolean draggedVertically = Math.abs(draggedUp) > slop;
 
-                            if (draggedVertically && !SWIPE_GESTURES_ENABLED) {
-                                // Swipe gestures are turned off, a vertical drag does nothing.
-                                // The bar is dismissed with its close button instead.
-                            } else if (-draggedUp > slop && !barAtTop) {
+                            if (-draggedUp > slop && !barAtTop) {
                                 closeBar();
                             } else if (draggedUp > slop && Settings.MINIPLAYER_SWIPE_UP_EXPAND.get()) {
                                 // Goes through the click, so accessibility services see it.
                                 view.performClick();
-                            } else if (draggedVertically && !Settings.MINIPLAYER_MINIMAL_DISABLE_DRAG.get()) {
+                            } else if (Math.abs(draggedUp) > slop) {
                                 // Already at the top, a drag up has nowhere to go. Nor while the bar
                                 // is animating, which can be the bar leaving before it is closed.
                                 final boolean toTop = draggedUp > 0;

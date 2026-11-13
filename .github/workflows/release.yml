@@ -1,92 +1,103 @@
-name: Build and Release
+name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      send_fcm:
+        description: 'Send FCM push notification'
+        type: boolean
+        default: true
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
-  build:
+  release:
+    name: Release
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      actions: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      # Version comes from gradle.properties; upstream bumps it on new releases.
-      - name: Determine version
-        id: ver
-        run: |
-          VERSION=$(sed -n 's/^version *= *//p' gradle.properties | tr -d '\r')
-          echo "Patches version: $VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '21'
 
-      # ubuntu-latest runners ship with the Android SDK; just accept licenses
-      # and install the platform version the extensions build against.
-      - name: Accept licenses and install Android platform
-        run: |
-          SDKM=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
-          echo "Using sdkmanager: $SDKM"
-          yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+      - name: Cache Gradle
+        uses: burrunan/gradle-cache-action@v3
 
-      - name: Build patches
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Release
+        uses: cycjimmy/semantic-release-action@v8
+        id: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-          GITHUB_ACTOR: XavierLee-0
-        run: |
-          ./gradlew :patches:generatePatchesList --no-daemon
-          # buildAndroid compiles patch classes to DEX and merges classes.dex
-          # into the .mpp — Morphe Manager loads patches from the dex.
-          ./gradlew :patches:buildAndroid --no-daemon
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MORPHE_SIGNING_KEY: ${{ secrets.MORPHE_SIGNING_KEY }}
 
-      - name: Verify bundle contains dex
-        run: unzip -l patches/build/libs/patches-${{ steps.ver.outputs.version }}.mpp | grep classes.dex
+      - name: Attest
+        if: steps.release.outputs.new_release_published == 'true'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: 'Morphe Patches ${{ steps.release.outputs.new_release_git_tag }}'
+          subject-path: patches/build/libs/patches-*.mpp
 
-      - name: Prepare artifact
-        run: |
-          mkdir -p dist
-          ls patches/build/libs/
-          cp patches/build/libs/patches-${{ steps.ver.outputs.version }}.mpp \
-             dist/patches-${{ steps.ver.outputs.version }}-custom.1.mpp
+      - name: Generate website deploy token
+        if: steps.release.outputs.new_release_published == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.MORPHE_AAMATT_APP_ID }}
+          private-key: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+          owner: MorpheApp
 
-      - name: Create release and upload asset
+      - name: Trigger website deploy
+        if: steps.release.outputs.new_release_published == 'true'
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: 'MorpheApp',
+              repo: 'morphe-website',
+              event_type: 'trigger-deploy'
+            })
+
+      - name: Wait before sending FCM
+        if: steps.release.outputs.new_release_published == 'true' && (github.event_name == 'push' || inputs.send_fcm == true)
+        run: sleep 300
+
+      - name: Setup Python for FCM
+        if: steps.release.outputs.new_release_published == 'true' && (github.event_name == 'push' || inputs.send_fcm == true)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Send FCM push notification
+        if: steps.release.outputs.new_release_published == 'true' && (github.event_name == 'push' || inputs.send_fcm == true)
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          REPO: ${{ github.repository }}
-          TAG: v${{ steps.ver.outputs.version }}-custom.1
-          ASSET: patches-${{ steps.ver.outputs.version }}-custom.1.mpp
+          FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          FCM_TYPE: bundle_update
+          FCM_VERSION: ${{ steps.release.outputs.new_release_version }}
+          BRANCH: ${{ github.ref_name }}
         run: |
-
-          RELEASE_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO/releases/tags/$TAG" | jq -r '.id // empty')
-
-          if [ -z "$RELEASE_ID" ]; then
-            RELEASE_ID=$(curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.github.com/repos/$REPO/releases" \
-              -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"body\":\"Upstream ${TAG}-custom base + Disable swipe gestures for Minimal miniplayer\"}" \
-              | jq -r '.id')
-            echo "Created release id=$RELEASE_ID"
-          fi
-
-          # Remove stale asset with the same name so the upload always succeeds
-          ASSET_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO/releases/$RELEASE_ID/assets" \
-            | jq -r ".[] | select(.name==\"$ASSET\") | .id")
-          if [ -n "$ASSET_ID" ]; then
-            curl -s -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$REPO/releases/assets/$ASSET_ID"
-            echo "Deleted stale asset id=$ASSET_ID"
-          fi
-
-          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @"dist/$ASSET" \
-            "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$ASSET" \
-            | jq -r '.name, .state, .browser_download_url'
+          pip install cryptography
+          python3 .github/scripts/send_fcm.py
