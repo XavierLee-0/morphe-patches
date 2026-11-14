@@ -155,15 +155,18 @@ jobs:
       - name: Align patches-bundle.json
         if: steps.check.outputs.update == 'true'
         run: |
+          # Keep the schema EXACTLY like the official bundle: no 'Z' suffix in
+          # created_at (Manager parses it as a local ISO datetime), github
+          # release download url (officially proven reachable from Manager),
+          # and the signing public key from the repo.
           VERSION=$(sed -n 's/^version *= *//p' gradle.properties | tr -d '\r')
           TAG="v${VERSION}-custom.1"
           ASSET="patches-${VERSION}-custom.1.mpp"
-          # jsDelivr URL — the actual file lands in dist/ when the triggered
-          # Build and Release run finishes (its mirror step commits it).
-          URL="https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@main/dist/${ASSET}"
-          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          jq --arg v "${VERSION}-custom.1" --arg u "$URL" --arg t "$NOW" \
-            '.version = $v | .download_url = $u | .created_at = $t |
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%S)
+          PK=$(cat morphe-signing.pub)
+          jq --arg v "${VERSION}-custom.1" --arg u "$URL" --arg t "$NOW" --arg pk "$PK" \
+            '.version = $v | .download_url = $u | .created_at = $t | .public_key = $pk |
              .description = "Morphe Patches '"${VERSION}"' + custom feature: Disable swipe gestures setting for the Minimal / Minimal 2 miniplayer. Based on upstream v'"${VERSION}"'."' \
             patches-bundle.json > patches-bundle.json.tmp && mv patches-bundle.json.tmp patches-bundle.json
           cat patches-bundle.json
