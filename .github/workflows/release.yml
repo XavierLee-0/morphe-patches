@@ -90,3 +90,33 @@ jobs:
             --data-binary @"dist/$ASSET" \
             "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$ASSET" \
             | jq -r '.name, .state, .browser_download_url'
+
+      # Morphe Manager on some networks cannot follow the GitHub release
+      # redirect chain, so the patch bundle points at jsDelivr which serves
+      # the mpp straight from this repo's dist/ folder (no redirects, CDN).
+      - name: Mirror mpp into the repository for jsDelivr
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          ASSET: patches-${{ steps.ver.outputs.version }}-custom.1.mpp
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f "dist/$ASSET" ] && cmp -s "dist/$ASSET" "patches/build/libs/patches-$VERSION.mpp"; then
+            echo "dist/$ASSET already up to date — nothing to mirror"
+          else
+            mkdir -p dist
+            cp "patches/build/libs/patches-$VERSION.mpp" "dist/$ASSET"
+            # Keep only the latest mirrored build.
+            find dist -name 'patches-*.mpp' ! -name "$ASSET" -delete
+            jq --arg u "https://cdn.jsdelivr.net/gh/XavierLee-0/morphe-patches@main/dist/$ASSET" \
+              '.download_url = $u' patches-bundle.json > patches-bundle.json.tmp \
+              && mv patches-bundle.json.tmp patches-bundle.json
+            git add dist patches-bundle.json
+            if git diff --cached --quiet; then
+              echo "Nothing to commit"
+            else
+              git commit -m "ci: mirror $ASSET into dist/ [skip ci]"
+              git push "https://x-access-token:$GH_TOKEN@github.com/${{ github.repository }}.git" HEAD:main
+            fi
+          fi
